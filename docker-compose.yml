@@ -1,0 +1,14 @@
+services:
+  container-health-exporter:
+    image: dockexp
+    volumes:
+      - .:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - LOG_LEVEL=debug
+    hostname: container-health-exporter
+    ports:
+      - "8037:8080"
+    restart: "no"
+    stdin_open: true
+    tty: true
