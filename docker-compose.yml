@@ -1,6 +1,6 @@
 services:
   pulsebox:
-    image: ramtinboreili/pulsebox:v0.0.1
+    image: ramtinboreili/pulsebox:v0.0.2
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
