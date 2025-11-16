@@ -5,7 +5,7 @@ It is designed for teams that want a clean, direct, and minimal way to monitor c
 
 ## Features
 - Collects health status of all running Docker containers
-- Exposes metrics via an HTTP endpoint (default: `:8080/metrics`)
+- Exposes metrics via an HTTP endpoint (default: `:8037/metrics`)
 - Designed for Prometheus scraping
 - Fast, minimal, production‑ready Go implementation
 - Docker & Docker Compose support
