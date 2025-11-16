@@ -7,6 +7,6 @@ services:
     #environment:
       #- LOG_LEVEL=debug
     ports:
-      - "8037:8080"
+      - "8037:8037"
     stdin_open: true
     tty: true
