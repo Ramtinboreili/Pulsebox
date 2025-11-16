@@ -1,14 +1,12 @@
 services:
-  container-health-exporter:
-    image: dockexp
+  pulsebox:
+    image: pghcr.io/ramtinboreili/pulsebox:v0.0.1
+    restart: unless-stopped
     volumes:
-      - .:/app
       - /var/run/docker.sock:/var/run/docker.sock
-    environment:
-      - LOG_LEVEL=debug
-    hostname: container-health-exporter
+    #environment:
+      #- LOG_LEVEL=debug
     ports:
       - "8037:8080"
-    restart: "no"
     stdin_open: true
     tty: true
