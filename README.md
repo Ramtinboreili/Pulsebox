@@ -334,11 +334,15 @@ polling** `GET /api/topology` every 5 s.
 
 ### Dashboard features
 
-- Force-directed graph, color-coded by health (green/amber/red/gray).
-- **GPU nodes rendered distinctly** (purple hexagon) — GPU capacity is scarce here.
+- Structured hierarchy diagram: a deterministic left-to-right tree of connected
+  card-nodes (Cluster → Namespace → Workload → Pod, with Nodes and PV/PVC as
+  related entities), color-coded by health (green/amber/red/gray).
+- Related links (pod→node, pod→PVC, service→pod) highlight on hover/select, so
+  the graph richness is there on demand without cluttering the default view.
+- **GPU nodes rendered distinctly** (purple accent + GPU badge) — GPU capacity is scarce here.
 - Top summary bar: cluster health %, healthy/degraded/unhealthy pod counts,
   namespace/pod/node/GPU tallies.
-- Namespace filter, name search, pan/zoom, drag-to-pin.
+- Namespace filter, name search, pan/zoom, and fit-to-view.
 - Click a node for detail: labels, restart count, node placement, mounted PVCs,
   reasons, and recent warning events.
 

@@ -18,29 +18,32 @@
       <select id="nsFilter" title="Filter by namespace">
         <option value="">All namespaces</option>
       </select>
-      <button id="collapseAll" class="btn" title="Collapse / expand all namespaces">⊟</button>
+      <button id="fit" class="btn" title="Fit to view">⤢</button>
       <span id="connState" class="conn conn-connecting">connecting…</span>
     </div>
   </header>
 
-  <main id="board" class="board"></main>
+  <main class="stage">
+    <canvas id="graph"></canvas>
 
-  <aside id="detail" class="detail hidden">
-    <button id="detailClose" class="close" aria-label="close">×</button>
-    <div id="detailAccent" class="detail-accent"></div>
-    <h2 id="detailTitle">—</h2>
-    <div id="detailBody"></div>
-  </aside>
+    <aside id="detail" class="detail hidden">
+      <button id="detailClose" class="close" aria-label="close">×</button>
+      <div id="detailAccent" class="detail-accent"></div>
+      <h2 id="detailTitle">—</h2>
+      <div id="detailBody"></div>
+    </aside>
 
-  <div id="tooltip" class="tooltip hidden"></div>
+    <div id="tooltip" class="tooltip hidden"></div>
 
-  <footer class="legend" id="legend">
-    <span><i class="dot healthy"></i>healthy</span>
-    <span><i class="dot degraded"></i>degraded</span>
-    <span><i class="dot unhealthy"></i>unhealthy</span>
-    <span><i class="dot unknown"></i>unknown</span>
-    <span><i class="chip-gpu">GPU</i> GPU node</span>
-  </footer>
+    <div class="legend" id="legend">
+      <span><i class="dot healthy"></i>healthy</span>
+      <span><i class="dot degraded"></i>degraded</span>
+      <span><i class="dot unhealthy"></i>unhealthy</span>
+      <span><i class="dot unknown"></i>unknown</span>
+      <span><i class="chip-gpu">GPU</i> GPU node</span>
+      <span class="hint">drag to pan · scroll to zoom · click for detail</span>
+    </div>
+  </main>
 
   <script src="app.js"></script>
 </body>
