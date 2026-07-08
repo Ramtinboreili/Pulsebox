@@ -1,0 +1,22 @@
+Pulsebox {{ .Chart.AppVersion }} installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Watch scope: {{ if .Values.rbac.clusterWide }}cluster-wide{{ else }}namespace "{{ include "pulsebox.watchNamespace" . }}"{{ end }}
+
+Dashboard:
+{{- if .Values.ingressRoute.enabled }}
+  https://{{ .Values.ingressRoute.host }}/
+{{- else }}
+  IngressRoute disabled. Port-forward instead:
+    kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "pulsebox.fullname" . }} {{ .Values.ports.http }}:{{ .Values.ports.http }}
+    open http://localhost:{{ .Values.ports.http }}/
+{{- end }}
+
+Prometheus metrics: :{{ .Values.ports.metrics }}/metrics
+{{- if .Values.serviceMonitor.enabled }}
+  Scraped via ServiceMonitor (label release={{ .Values.serviceMonitor.releaseLabel }}).
+{{- else }}
+  ServiceMonitor disabled — add scraping manually.
+{{- end }}
+
+Verify:
+  kubectl -n {{ .Release.Namespace }} get pods -l app.kubernetes.io/name={{ include "pulsebox.name" . }}

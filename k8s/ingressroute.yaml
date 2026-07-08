@@ -1,0 +1,29 @@
+# Traefik v3 IngressRoute (CRD) — this cluster uses IngressRoute, not the
+# standard networking.k8s.io Ingress. The dashboard is exposed on its own
+# subdomain; metrics (:8037) are intentionally NOT exposed here.
+#
+# TLS uses the existing wildcard certificate. Traefik resolves `secretName`
+# from the IngressRoute's own namespace, so the wildcard secret must exist in
+# the `pulsebox` namespace (replicate it, or configure it as Traefik's default
+# certificate via a TLSStore). Adjust `Host(...)` to your real domain.
+#
+# No auth in v1 (matches the cluster's internal-service pattern). Natural
+# follow-up: put Keycloak / oauth2-proxy in front via a Traefik middleware.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: pulsebox
+  namespace: pulsebox
+  labels:
+    app.kubernetes.io/name: pulsebox
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`pulsebox.example.com`)
+      services:
+        - name: pulsebox
+          port: 8080
+  tls:
+    secretName: wildcard-datatejarat-tls

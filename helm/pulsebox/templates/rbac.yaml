@@ -1,0 +1,67 @@
+{{- if .Values.rbac.create -}}
+{{- if .Values.rbac.clusterWide }}
+# Cluster-wide, read-only. No write verbs anywhere.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "pulsebox.fullname" . }}
+  labels:
+    {{- include "pulsebox.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [nodes, namespaces, pods, persistentvolumes, persistentvolumeclaims, services, endpoints, events]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: [deployments, statefulsets, daemonsets, replicasets]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "pulsebox.fullname" . }}
+  labels:
+    {{- include "pulsebox.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "pulsebox.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "pulsebox.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- else }}
+# Namespaced, read-only. Cluster-scoped resources (nodes, PVs, namespaces) are
+# intentionally absent — a Role cannot grant them, and Pulsebox skips watching
+# them when scoped to a single namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "pulsebox.fullname" . }}
+  namespace: {{ include "pulsebox.watchNamespace" . }}
+  labels:
+    {{- include "pulsebox.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [pods, persistentvolumeclaims, services, endpoints, events]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: [deployments, statefulsets, daemonsets, replicasets]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "pulsebox.fullname" . }}
+  namespace: {{ include "pulsebox.watchNamespace" . }}
+  labels:
+    {{- include "pulsebox.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "pulsebox.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "pulsebox.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

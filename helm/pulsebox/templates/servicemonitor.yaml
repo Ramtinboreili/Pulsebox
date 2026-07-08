@@ -1,0 +1,20 @@
+{{- if .Values.serviceMonitor.enabled -}}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "pulsebox.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pulsebox.labels" . | nindent 4 }}
+    # REQUIRED for kube-prometheus-stack to select this monitor. Matches the
+    # Prometheus release label selector — here the release is "monitoring".
+    release: {{ .Values.serviceMonitor.releaseLabel }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "pulsebox.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: {{ .Values.serviceMonitor.interval }}
+{{- end }}

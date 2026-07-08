@@ -1,0 +1,23 @@
+# ServiceMonitor for kube-prometheus-stack.
+#
+# IMPORTANT: In this cluster, the Prometheus instance only selects
+# ServiceMonitors labeled `release: monitoring`. The Helm release is named
+# "monitoring", NOT "kube-prometheus-stack" — a common gotcha. If this label is
+# wrong or missing, Prometheus silently ignores this target and no Pulsebox
+# metrics are scraped. Do not "clean this up" to release: kube-prometheus-stack.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: pulsebox
+  namespace: pulsebox
+  labels:
+    app.kubernetes.io/name: pulsebox
+    release: monitoring
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pulsebox
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
