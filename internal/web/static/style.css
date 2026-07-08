@@ -59,6 +59,33 @@ body {
 .btn { cursor: pointer; width: 34px; padding: 0; font-size: 15px; }
 .btn:hover { border-color: var(--accent); }
 
+/* multi-select namespace dropdown */
+.ns-multi { position: relative; }
+.ns-btn { width: auto; padding: 0 10px; display: inline-flex; align-items: center; gap: 8px; max-width: 220px; }
+.ns-btn #nsBtnLabel { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ns-btn .caret { color: var(--muted); font-size: 10px; }
+.ns-menu {
+  position: absolute; top: 38px; right: 0; z-index: 40; width: 260px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: var(--shadow); padding: 8px; display: flex; flex-direction: column; gap: 6px;
+}
+.ns-menu.hidden { display: none; }
+.ns-search { height: 30px; }
+.ns-menu-actions { display: flex; justify-content: flex-end; }
+.ns-menu-actions button {
+  background: none; border: none; color: var(--accent); cursor: pointer; font-size: 12px; padding: 2px 4px;
+}
+.ns-menu-actions button:hover { text-decoration: underline; }
+.ns-list { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; }
+.ns-list label {
+  display: flex; align-items: center; gap: 8px; padding: 5px 6px; border-radius: 6px;
+  cursor: pointer; font-size: 12.5px; white-space: nowrap;
+}
+.ns-list label:hover { background: var(--panel-2); }
+.ns-list input { accent-color: var(--accent); width: 14px; height: 14px; cursor: pointer; }
+.ns-list .ns-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.ns-list label.hiddenByFilter { display: none; }
+
 .conn { font-size: 11px; padding: 4px 9px; border-radius: 999px; border: 1px solid var(--border); white-space: nowrap; }
 .conn-live { color: var(--healthy); border-color: color-mix(in srgb, var(--healthy) 60%, transparent); }
 .conn-connecting { color: var(--degraded); }

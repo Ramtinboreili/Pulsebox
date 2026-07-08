@@ -15,9 +15,16 @@
     <div id="summary" class="summary"></div>
     <div class="controls">
       <input id="search" type="search" placeholder="Search…" autocomplete="off" />
-      <select id="nsFilter" title="Filter by namespace">
-        <option value="">All namespaces</option>
-      </select>
+      <div class="ns-multi" id="nsMulti">
+        <button class="btn ns-btn" id="nsBtn" title="Filter by namespace" aria-haspopup="true" aria-expanded="false">
+          <span id="nsBtnLabel">All namespaces</span><span class="caret">▾</span>
+        </button>
+        <div class="ns-menu hidden" id="nsMenu">
+          <input class="ns-search" id="nsMenuSearch" type="search" placeholder="Filter namespaces…" autocomplete="off" />
+          <div class="ns-menu-actions"><button type="button" id="nsClear">Clear (show all)</button></div>
+          <div class="ns-list" id="nsList"></div>
+        </div>
+      </div>
       <button id="fit" class="btn" title="Fit to view">⤢</button>
       <span id="connState" class="conn conn-connecting">connecting…</span>
     </div>

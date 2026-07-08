@@ -23,7 +23,8 @@
   const nodes = new Map(), edges = new Map();
   let pos = new Map();
   let layoutDirty = true, needFit = true;
-  let nsFilter = "", searchTerm = "";
+  let searchTerm = "";
+  const nsFilter = new Set(); // selected namespace names; empty = show all
   let selectedId = null, hoverId = null;
   let nodesExpanded = false;
   let scale = 1, panX = 0, panY = 0;
@@ -65,15 +66,19 @@
     return idx;
   }
   function computeVisible() {
-    if (!nsFilter) return null;
+    if (!nsFilter.size) return null; // no selection = show everything
     const contains = treeChildrenIndex();
     const keep = new Set(["Cluster"]);
     for (const n of nodes.values()) if (n.kind === "Node") keep.add(n.id);
-    const nsId = "Namespace/" + nsFilter, stack = [nsId];
-    keep.add(nsId);
-    while (stack.length) {
-      const id = stack.pop();
-      for (const c of contains.get(id) || []) if (!keep.has(c)) { keep.add(c); stack.push(c); }
+    for (const ns of nsFilter) {
+      const nsId = "Namespace/" + ns;
+      if (!nodes.has(nsId)) continue;
+      const stack = [nsId];
+      keep.add(nsId);
+      while (stack.length) {
+        const id = stack.pop();
+        for (const c of contains.get(id) || []) if (!keep.has(c)) { keep.add(c); stack.push(c); }
+      }
     }
     return keep;
   }
@@ -484,16 +489,54 @@
   }
   const stat = (l, v, c) => `<span class="stat"><b style="color:${c}">${v}</b> ${l}</span>`;
 
-  function updateNamespaceFilter() {
-    const sel = document.getElementById("nsFilter"); const current = sel.value;
-    const names = [...nodes.values()].filter((n) => n.kind === "Namespace").map((n) => n.name).sort();
-    const existing = new Set([...sel.options].map((o) => o.value));
-    const wanted = new Set(["", ...names]);
-    if (existing.size === wanted.size && [...wanted].every((x) => existing.has(x))) return;
-    sel.innerHTML = `<option value="">All namespaces</option>` + names.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
-    sel.value = wanted.has(current) ? current : "";
+  const nsBtn = document.getElementById("nsBtn");
+  const nsMenu = document.getElementById("nsMenu");
+  const nsList = document.getElementById("nsList");
+
+  function nsButtonLabel() {
+    const lbl = document.getElementById("nsBtnLabel");
+    lbl.textContent = nsFilter.size === 0 ? "All namespaces" : nsFilter.size === 1 ? [...nsFilter][0] : nsFilter.size + " namespaces";
   }
-  document.getElementById("nsFilter").addEventListener("change", (e) => { nsFilter = e.target.value; layoutDirty = true; needFit = true; });
+
+  function updateNamespaceFilter() {
+    const names = [...nodes.values()].filter((n) => n.kind === "Namespace").map((n) => n.name).sort();
+    for (const s of [...nsFilter]) if (!names.includes(s)) nsFilter.delete(s); // prune stale selections
+    const existing = [...nsList.querySelectorAll("input")].map((i) => i.value);
+    const changed = existing.length !== names.length || names.some((n, i) => existing[i] !== n);
+    if (changed) {
+      const nsColor = (name) => { const nn = nodes.get("Namespace/" + name); return nn ? (COLORS[nn.health] || COLORS.unknown) : COLORS.unknown; };
+      nsList.innerHTML = names.map((n) =>
+        `<label data-name="${esc(n)}"><input type="checkbox" value="${esc(n)}"${nsFilter.has(n) ? " checked" : ""}>` +
+        `<span class="ns-dot" style="background:${nsColor(n)}"></span>${esc(n)}</label>`).join("");
+    } else {
+      nsList.querySelectorAll("input").forEach((i) => { i.checked = nsFilter.has(i.value); });
+    }
+    nsButtonLabel();
+  }
+
+  nsBtn.addEventListener("click", () => {
+    nsMenu.classList.toggle("hidden");
+    nsBtn.setAttribute("aria-expanded", String(!nsMenu.classList.contains("hidden")));
+  });
+  document.addEventListener("click", (e) => {
+    if (!document.getElementById("nsMulti").contains(e.target)) {
+      nsMenu.classList.add("hidden"); nsBtn.setAttribute("aria-expanded", "false");
+    }
+  });
+  nsList.addEventListener("change", (e) => {
+    const i = e.target.closest("input"); if (!i) return;
+    if (i.checked) nsFilter.add(i.value); else nsFilter.delete(i.value);
+    nsButtonLabel(); layoutDirty = true; needFit = true;
+  });
+  document.getElementById("nsClear").addEventListener("click", () => {
+    nsFilter.clear();
+    nsList.querySelectorAll("input").forEach((i) => { i.checked = false; });
+    nsButtonLabel(); layoutDirty = true; needFit = true;
+  });
+  document.getElementById("nsMenuSearch").addEventListener("input", (e) => {
+    const q = e.target.value.trim().toLowerCase();
+    nsList.querySelectorAll("label").forEach((l) => l.classList.toggle("hiddenByFilter", !!q && !l.dataset.name.toLowerCase().includes(q)));
+  });
   document.getElementById("search").addEventListener("input", (e) => { searchTerm = e.target.value.trim().toLowerCase(); });
 
   // ---- connection --------------------------------------------------------
