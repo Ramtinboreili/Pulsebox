@@ -31,6 +31,9 @@ func (c *Collector) PodList() []*corev1.Pod {
 }
 
 func (c *Collector) NamespaceList() []*corev1.Namespace {
+	if c.nsLister == nil {
+		return nil
+	}
 	out, _ := c.nsLister.List(labels.Everything())
 	return out
 }
@@ -92,6 +95,9 @@ func (c *Collector) GetResource(kind, ns, name string) (interface{}, error) {
 		}
 		return c.nodeLister.Get(name)
 	case "namespace":
+		if c.nsLister == nil {
+			return nil, fmt.Errorf("namespaces not watched in namespaced mode")
+		}
 		return c.nsLister.Get(name)
 	case "deployment":
 		return c.deployLister.Deployments(ns).Get(name)

@@ -1,0 +1,27 @@
+# Read-only cluster access. Pulsebox NEVER writes to the API — there are no
+# create/update/patch/delete/deletecollection verbs anywhere in this role.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: pulsebox
+  labels:
+    app.kubernetes.io/name: pulsebox
+rules:
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - namespaces
+      - pods
+      - persistentvolumes
+      - persistentvolumeclaims
+      - services
+      - endpoints
+      - events
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources:
+      - deployments
+      - statefulsets
+      - daemonsets
+      - replicasets
+    verbs: ["get", "list", "watch"]

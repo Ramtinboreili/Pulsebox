@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pulsebox
+  namespace: pulsebox
+  labels:
+    app.kubernetes.io/name: pulsebox
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pulsebox
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pulsebox
+    spec:
+      serviceAccountName: pulsebox
+      # Private registry (Nexus) pull secret used across this cluster.
+      imagePullSecrets:
+        - name: registry-credentials
+      containers:
+        - name: pulsebox
+          # Pin a real tag when deploying; never :latest.
+          image: docker.datatejarat.ir/pulsebox:v0.1.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - --metrics-addr=:8037
+            - --http-addr=:8080
+            # - --namespace=            # set to restrict to one namespace (namespaced RBAC)
+            # - --pvc-pending-grace=2m
+          ports:
+            - name: metrics
+              containerPort: 8037
+            - name: http
+              containerPort: 8080
+          # Per this cluster's convention: requests only, no limits.
+          resources:
+            requests:
+              cpu: 50m
+              memory: 96Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: metrics
+            initialDelaySeconds: 3
+            periodSeconds: 10

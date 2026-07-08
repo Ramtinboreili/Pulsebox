@@ -29,6 +29,9 @@ import (
 	"github.com/Ramtinboreili/Pulsebox/internal/web"
 )
 
+// version is set at build time via -ldflags "-X main.version=...".
+var version = "dev"
+
 func env(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -48,7 +51,7 @@ func main() {
 
 	log.SetFlags(log.LstdFlags | log.Lmsgprefix)
 	log.SetPrefix("pulsebox ")
-	log.Println("starting Pulsebox cluster health exporter")
+	log.Printf("starting Pulsebox cluster health exporter (version %s)", version)
 
 	cfg, err := buildKubeConfig(*kubeconfig)
 	if err != nil {

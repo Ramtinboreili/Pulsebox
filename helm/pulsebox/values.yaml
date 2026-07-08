@@ -1,0 +1,72 @@
+# Default values for the Pulsebox chart.
+
+image:
+  # Private registry (Nexus) in the target cluster. Pin a real tag — never :latest.
+  repository: docker.datatejarat.ir/pulsebox
+  tag: v0.1.0
+  pullPolicy: IfNotPresent
+
+# Pull secret(s) for the private registry.
+imagePullSecrets:
+  - name: registry-credentials
+
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 1
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: true
+  # clusterWide=true grants a read-only ClusterRole to watch the whole cluster
+  # (nodes, PVs, all namespaces). Set false to scope watches to a single
+  # namespace with a namespaced Role instead (nodes/PVs/namespaces are then not
+  # visible, since a Role cannot grant cluster-scoped resources).
+  clusterWide: true
+  # Namespace to watch when clusterWide=false. Empty = the release namespace.
+  watchNamespace: ""
+
+# Container/service port numbers. metrics = Prometheus scrape; http = dashboard+API.
+ports:
+  metrics: 8037
+  http: 8080
+
+# A PVC pending longer than this is scored unhealthy (Longhorn RWO failure mode).
+pvcPendingGrace: 2m
+
+# Cluster convention: requests only, no limits.
+resources:
+  requests:
+    cpu: 50m
+    memory: 96Mi
+
+service:
+  type: ClusterIP
+
+# ServiceMonitor for kube-prometheus-stack.
+serviceMonitor:
+  enabled: true
+  # MUST match the label the Prometheus instance selects on. In this cluster the
+  # Prometheus release is named "monitoring", so this is `monitoring` — NOT
+  # `kube-prometheus-stack`. Wrong value => target silently dropped.
+  releaseLabel: monitoring
+  interval: 30s
+
+# Traefik v3 IngressRoute for the dashboard (metrics are never exposed here).
+ingressRoute:
+  enabled: true
+  entryPoint: websecure
+  host: pulsebox.example.com
+  tls:
+    # Must exist in the release namespace (replicate the wildcard secret or use
+    # a Traefik TLSStore default certificate).
+    secretName: wildcard-datatejarat-tls
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

@@ -1,0 +1,17 @@
+apiVersion: v2
+name: pulsebox
+description: Kubernetes-native cluster health exporter with a live topology dashboard
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - kubernetes
+  - monitoring
+  - prometheus
+  - health
+  - topology
+home: https://github.com/Ramtinboreili/Pulsebox
+sources:
+  - https://github.com/Ramtinboreili/Pulsebox
+maintainers:
+  - name: Ramtin Boreili

@@ -96,7 +96,6 @@ func New(clientset kubernetes.Interface, cfg Config) *Collector {
 	}
 
 	// Namespaced resources (available in both modes).
-	c.nsLister = factory.Core().V1().Namespaces().Lister()
 	c.podLister = factory.Core().V1().Pods().Lister()
 	c.pvcLister = factory.Core().V1().PersistentVolumeClaims().Lister()
 	c.svcLister = factory.Core().V1().Services().Lister()
@@ -108,7 +107,6 @@ func New(clientset kubernetes.Interface, cfg Config) *Collector {
 	c.rsLister = factory.Apps().V1().ReplicaSets().Lister()
 
 	informerList := []cache.SharedIndexInformer{
-		factory.Core().V1().Namespaces().Informer(),
 		factory.Core().V1().Pods().Informer(),
 		factory.Core().V1().PersistentVolumeClaims().Informer(),
 		factory.Core().V1().Services().Informer(),
@@ -120,11 +118,16 @@ func New(clientset kubernetes.Interface, cfg Config) *Collector {
 		factory.Apps().V1().ReplicaSets().Informer(),
 	}
 
-	// Cluster-scoped resources only in cluster-wide mode.
+	// Cluster-scoped resources only in cluster-wide mode. (Namespaces is itself
+	// cluster-scoped, so in namespaced mode we synthesize the single namespace
+	// node instead of watching the Namespace API — a namespaced Role cannot
+	// grant nodes/persistentvolumes/namespaces.)
 	if clusterScope {
+		c.nsLister = factory.Core().V1().Namespaces().Lister()
 		c.nodeLister = factory.Core().V1().Nodes().Lister()
 		c.pvLister = factory.Core().V1().PersistentVolumes().Lister()
 		informerList = append(informerList,
+			factory.Core().V1().Namespaces().Informer(),
 			factory.Core().V1().Nodes().Informer(),
 			factory.Core().V1().PersistentVolumes().Informer(),
 		)

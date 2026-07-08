@@ -247,16 +247,28 @@ func (c *Collector) buildGraph() topology.Graph {
 	c.restarts.prune(livePods, liveContainers)
 
 	// --- Namespaces (with rolled-up health) -------------------------------
-	namespaces, _ := c.nsLister.List(labels.Everything())
-	for _, ns := range namespaces {
-		res := health.Aggregate(nsChildren[ns.Name])
+	if c.clusterScope && c.nsLister != nil {
+		namespaces, _ := c.nsLister.List(labels.Everything())
+		for _, ns := range namespaces {
+			res := health.Aggregate(nsChildren[ns.Name])
+			clusterChildren = append(clusterChildren, res)
+			add(topology.Node{
+				ID: id(topology.KindNamespace, "", ns.Name), Kind: topology.KindNamespace, Name: ns.Name,
+				Health: string(res.State), Score: res.Score, Reasons: res.Reasons,
+				Meta: map[string]string{"phase": string(ns.Status.Phase)},
+			})
+			addEdge(clusterID, id(topology.KindNamespace, "", ns.Name), topology.EdgeContains)
+		}
+	} else {
+		// Namespaced mode: synthesize the single watched namespace node.
+		ns := c.cfg.Namespace
+		res := health.Aggregate(nsChildren[ns])
 		clusterChildren = append(clusterChildren, res)
 		add(topology.Node{
-			ID: id(topology.KindNamespace, "", ns.Name), Kind: topology.KindNamespace, Name: ns.Name,
+			ID: id(topology.KindNamespace, "", ns), Kind: topology.KindNamespace, Name: ns,
 			Health: string(res.State), Score: res.Score, Reasons: res.Reasons,
-			Meta: map[string]string{"phase": string(ns.Status.Phase)},
 		})
-		addEdge(clusterID, id(topology.KindNamespace, "", ns.Name), topology.EdgeContains)
+		addEdge(clusterID, id(topology.KindNamespace, "", ns), topology.EdgeContains)
 	}
 
 	// --- Cluster root -----------------------------------------------------

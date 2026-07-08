@@ -1,12 +1,23 @@
+# ⚠️ LOCAL DEVELOPMENT ONLY — this is NOT how Pulsebox runs in a cluster.
+#
+# In production Pulsebox runs as a Deployment inside Kubernetes and reads the
+# cluster through the Kubernetes API using its in-cluster ServiceAccount.
+# See k8s/ (plain manifests) or helm/pulsebox/ (chart) for the real deployment.
+#
+# This compose file just runs the container against a cluster reachable via your
+# local kubeconfig, for quick iteration. It does NOT mount the Docker socket —
+# Pulsebox no longer talks to Docker at all.
 services:
   pulsebox:
-    image: ramtinboreili/pulsebox:v0.0.2
+    image: docker.datatejarat.ir/pulsebox:v0.1.0
     restart: unless-stopped
+    command:
+      - --metrics-addr=:8037
+      - --http-addr=:8080
+      - --kubeconfig=/kube/config
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    #environment:
-      #- LOG_LEVEL=debug
+      # Read-only kubeconfig so the container can reach your dev cluster's API.
+      - ${KUBECONFIG:-${HOME}/.kube/config}:/kube/config:ro
     ports:
-      - "8037:8037"
-    stdin_open: true
-    tty: true
+      - "8037:8037" # Prometheus /metrics
+      - "8080:8080" # dashboard + topology API  ->  http://localhost:8080/
