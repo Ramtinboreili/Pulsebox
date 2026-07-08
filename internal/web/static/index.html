@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pulsebox — Cluster Topology</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header id="topbar">
+    <div class="brand">
+      <span class="logo">◉</span>
+      <span class="title">Pulsebox</span>
+    </div>
+    <div id="summary" class="summary"></div>
+    <div class="controls">
+      <input id="search" type="search" placeholder="Search name…" autocomplete="off" />
+      <select id="nsFilter" title="Filter by namespace"><option value="">All namespaces</option></select>
+      <span id="connState" class="conn conn-connecting" title="stream state">connecting…</span>
+    </div>
+  </header>
+
+  <main>
+    <canvas id="graph"></canvas>
+
+    <aside id="detail" class="detail hidden">
+      <button id="detailClose" class="close" aria-label="close">×</button>
+      <h2 id="detailTitle">—</h2>
+      <div id="detailBody"></div>
+    </aside>
+
+    <div id="legend" class="legend">
+      <span><i class="dot healthy"></i>healthy</span>
+      <span><i class="dot degraded"></i>degraded</span>
+      <span><i class="dot unhealthy"></i>unhealthy</span>
+      <span><i class="dot unknown"></i>unknown</span>
+      <span><i class="dot gpu"></i>GPU node</span>
+    </div>
+  </main>
+
+  <div id="tooltip" class="tooltip hidden"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
