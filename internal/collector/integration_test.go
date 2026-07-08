@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 
+	"github.com/gorilla/websocket"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/Ramtinboreili/Pulsebox/internal/api"
@@ -26,7 +27,7 @@ import (
 // This exercises the whole read path against a fake API server: informers →
 // graph → metrics and REST, standing in for acceptance criteria 2 and 3 without
 // needing a live cluster.
-func buildCollector(t *testing.T) (*collector.Collector, context.CancelFunc) {
+func buildCollector(t *testing.T) (*collector.Collector, *fake.Clientset, context.CancelFunc) {
 	t.Helper()
 	repl := int32(2)
 	objs := []runtime.Object{
@@ -64,7 +65,7 @@ func buildCollector(t *testing.T) (*collector.Collector, context.CancelFunc) {
 		cancel()
 		t.Fatalf("start: %v", err)
 	}
-	return col, cancel
+	return col, client, cancel
 }
 
 func findNode(g topology.Graph, id string) (topology.Node, bool) {
@@ -77,7 +78,7 @@ func findNode(g topology.Graph, id string) (topology.Node, bool) {
 }
 
 func TestCollectorGraph(t *testing.T) {
-	col, cancel := buildCollector(t)
+	col, _, cancel := buildCollector(t)
 	defer cancel()
 
 	g := col.Snapshot()
@@ -116,7 +117,7 @@ func TestCollectorGraph(t *testing.T) {
 }
 
 func TestMetricsOutput(t *testing.T) {
-	col, cancel := buildCollector(t)
+	col, _, cancel := buildCollector(t)
 	defer cancel()
 
 	reg := prometheus.NewRegistry()
@@ -140,7 +141,7 @@ func TestMetricsOutput(t *testing.T) {
 }
 
 func TestTopologyAPI(t *testing.T) {
-	col, cancel := buildCollector(t)
+	col, _, cancel := buildCollector(t)
 	defer cancel()
 
 	mux := http.NewServeMux()
@@ -190,5 +191,57 @@ func TestTopologyAPI(t *testing.T) {
 	}
 	if body["resource"] == nil {
 		t.Fatal("resource detail missing resource payload")
+	}
+}
+
+// TestStreamDiff covers acceptance criterion 3: the WS stream sends a snapshot,
+// then pushes at least one diff when a pod is deleted.
+func TestStreamDiff(t *testing.T) {
+	col, client, cancel := buildCollector(t)
+	defer cancel()
+
+	mux := http.NewServeMux()
+	api.New(col).RegisterRoutes(mux)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	wsURL := "ws" + srv.URL[len("http"):] + "/api/stream"
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("ws dial: %v", err)
+	}
+	defer conn.Close()
+
+	// First frame is the snapshot.
+	var snap topology.Diff
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if err := conn.ReadJSON(&snap); err != nil {
+		t.Fatalf("read snapshot: %v", err)
+	}
+	if snap.Type != topology.MsgSnapshot || len(snap.UpsertNodes) == 0 {
+		t.Fatalf("expected non-empty snapshot, got type=%q nodes=%d", snap.Type, len(snap.UpsertNodes))
+	}
+
+	// Mutate the cluster: delete a pod. The informer should observe it and the
+	// collector should broadcast a diff removing that node.
+	if err := client.CoreV1().Pods("app").Delete(context.Background(), "bad", metav1.DeleteOptions{}); err != nil {
+		t.Fatalf("delete pod: %v", err)
+	}
+
+	deadline := time.Now().Add(8 * time.Second)
+	for {
+		conn.SetReadDeadline(time.Now().Add(8 * time.Second))
+		var d topology.Diff
+		if err := conn.ReadJSON(&d); err != nil {
+			t.Fatalf("read diff: %v", err)
+		}
+		for _, id := range d.RemoveNodes {
+			if id == "Pod/app/bad" {
+				return // success
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("did not receive a diff removing the deleted pod")
+		}
 	}
 }
