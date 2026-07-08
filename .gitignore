@@ -1,0 +1,11 @@
+# Design handoff — reference only, not part of the shipped repo.
+design_handoff_pulsebox_dashboard/
+
+# Build output
+/pulsebox
+/dist/
+*.exe
+
+# OS / editor cruft
+.DS_Store
+*.swp

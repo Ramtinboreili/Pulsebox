@@ -26,10 +26,14 @@
   <main class="stage">
     <canvas id="graph"></canvas>
 
+    <div id="overlay" class="overlay">
+      <div class="spinner"></div>
+      <div id="overlayText">Loading cluster topology…</div>
+    </div>
+
     <aside id="detail" class="detail hidden">
       <button id="detailClose" class="close" aria-label="close">×</button>
       <div id="detailAccent" class="detail-accent"></div>
-      <h2 id="detailTitle">—</h2>
       <div id="detailBody"></div>
     </aside>
 
