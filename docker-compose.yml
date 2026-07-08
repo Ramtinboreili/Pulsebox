@@ -9,7 +9,7 @@
 # Pulsebox no longer talks to Docker at all.
 services:
   pulsebox:
-    image: docker.datatejarat.ir/pulsebox:v0.1.0
+    image: ramtinboreili/pulsebox:v1.0.0
     restart: unless-stopped
     command:
       - --metrics-addr=:8037

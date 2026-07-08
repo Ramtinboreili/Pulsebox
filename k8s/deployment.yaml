@@ -16,13 +16,14 @@ spec:
         app.kubernetes.io/name: pulsebox
     spec:
       serviceAccountName: pulsebox
-      # Private registry (Nexus) pull secret used across this cluster.
-      imagePullSecrets:
-        - name: registry-credentials
+      # Public Docker Hub image needs no pull secret. Uncomment for a private
+      # registry or to authenticate against Docker Hub rate limits.
+      # imagePullSecrets:
+      #   - name: registry-credentials
       containers:
         - name: pulsebox
           # Pin a real tag when deploying; never :latest.
-          image: docker.datatejarat.ir/pulsebox:v0.1.0
+          image: ramtinboreili/pulsebox:v1.0.0
           imagePullPolicy: IfNotPresent
           args:
             - --metrics-addr=:8037

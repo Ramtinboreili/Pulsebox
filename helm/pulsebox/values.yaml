@@ -1,14 +1,14 @@
 # Default values for the Pulsebox chart.
 
 image:
-  # Private registry (Nexus) in the target cluster. Pin a real tag — never :latest.
-  repository: docker.datatejarat.ir/pulsebox
-  tag: v0.1.0
+  # Public image on Docker Hub. Pin a real tag — never :latest.
+  repository: ramtinboreili/pulsebox
+  tag: v1.0.0
   pullPolicy: IfNotPresent
 
-# Pull secret(s) for the private registry.
-imagePullSecrets:
-  - name: registry-credentials
+# Pull secret(s). Not needed for the public Docker Hub image; add one only for a
+# private registry or to authenticate against Docker Hub rate limits.
+imagePullSecrets: []
 
 nameOverride: ""
 fullnameOverride: ""
