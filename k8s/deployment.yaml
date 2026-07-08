@@ -23,7 +23,7 @@ spec:
       containers:
         - name: pulsebox
           # Pin a real tag when deploying; never :latest.
-          image: ramtinboreili/pulsebox:v1.0.0
+          image: ramtinboreili/pulsebox:v1.3.0
           imagePullPolicy: IfNotPresent
           args:
             - --metrics-addr=:8037

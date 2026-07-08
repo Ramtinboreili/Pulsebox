@@ -2,8 +2,8 @@ apiVersion: v2
 name: pulsebox
 description: Kubernetes-native cluster health exporter with a live topology dashboard
 type: application
-version: 1.0.0
-appVersion: "1.0.0"
+version: 1.3.0
+appVersion: "1.3.0"
 keywords:
   - kubernetes
   - monitoring

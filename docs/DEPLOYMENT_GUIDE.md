@@ -7,8 +7,8 @@ This guide walks you through what to do with the Pulsebox codebase now that it i
 
 ```
 # 1) Build & push the image to Docker Hub
-docker build -t ramtinboreili/pulsebox:v1.0.0 --build-arg VERSION=v1.0.0 .
-docker push ramtinboreili/pulsebox:v1.0.0
+docker build -t ramtinboreili/pulsebox:v1.3.0 --build-arg VERSION=v1.3.0 .
+docker push ramtinboreili/pulsebox:v1.3.0
 
 # 2) Install with Helm into its own namespace
 helm upgrade --install pulsebox helm/pulsebox \
@@ -32,7 +32,7 @@ Pulsebox runs as a single Deployment inside your cluster. It watches cluster sta
 - **Prometheus metrics** on port **8037** (`/metrics`) — for Grafana and alerting.
 - **A live topology dashboard** on port **8080** (`/`) plus a JSON/WebSocket API (`/api/*`) — an interactive graph of namespaces, workloads, pods, nodes and PV/PVC, colour-coded by health.
 
-The dashboard frontend is compiled into the binary, so the image is a single static file with no CDN or asset dependencies. The published image is public on Docker Hub: `docker pull ramtinboreili/pulsebox:v1.0.0`.
+The dashboard frontend is compiled into the binary, so the image is a single static file with no CDN or asset dependencies. The published image is public on Docker Hub: `docker pull ramtinboreili/pulsebox:v1.3.0`.
 
 
 ## 2. Prerequisites
@@ -49,9 +49,9 @@ The dashboard frontend is compiled into the binary, so the image is a single sta
 The frontend is embedded at build time, so a normal Docker build is all you need. Always pin a real tag — never `:latest`.
 
 ```
-docker build -t ramtinboreili/pulsebox:v1.0.0 --build-arg VERSION=v1.0.0 .
+docker build -t ramtinboreili/pulsebox:v1.3.0 --build-arg VERSION=v1.3.0 .
 docker login            # if not already logged in to Docker Hub
-docker push ramtinboreili/pulsebox:v1.0.0
+docker push ramtinboreili/pulsebox:v1.3.0
 ```
 
 > **Note:** The image is public, so clusters need no pull secret. If you later make it private, add a pull secret and set `imagePullSecrets` in values.yaml (Helm) or uncomment the block in k8s/deployment.yaml.
@@ -69,7 +69,7 @@ The chart lives in `helm/pulsebox/`. Install or upgrade with:
 ```
 helm upgrade --install pulsebox helm/pulsebox \
   --namespace pulsebox --create-namespace \
-  --set image.tag=v1.0.0 \
+  --set image.tag=v1.3.0 \
   --set ingressRoute.host=pulsebox.your-domain.tld \
   --set ingressRoute.tls.secretName=wildcard-datatejarat-tls
 ```
@@ -79,7 +79,7 @@ helm upgrade --install pulsebox helm/pulsebox \
 ```
 # my-values.yaml
 image:
-  tag: v1.0.0
+  tag: v1.3.0
 ingressRoute:
   host: pulsebox.your-domain.tld
   tls:
@@ -99,7 +99,7 @@ helm template pulsebox helm/pulsebox -f my-values.yaml   # render YAML without a
 helm lint helm/pulsebox                                  # sanity-check the chart
 helm -n pulsebox status pulsebox                         # release status + notes
 helm -n pulsebox uninstall pulsebox                      # remove everything
-helm package helm/pulsebox                               # produce pulsebox-1.0.0.tgz to share
+helm package helm/pulsebox                               # produce pulsebox-1.3.0.tgz to share
 ```
 
 
@@ -196,7 +196,7 @@ git push -u origin my-change   # open a PR into dev
 
 # cut a release
 git checkout main && git merge dev
-git tag v1.0.0 && git push --tags
+git tag v1.3.0 && git push --tags
 ```
 
 
@@ -219,7 +219,7 @@ git tag v1.0.0 && git push --tags
 
 #### Pod won't start / ImagePullBackOff
 
-- Verify the tag exists: `docker pull ramtinboreili/pulsebox:v1.0.0`.
+- Verify the tag exists: `docker pull ramtinboreili/pulsebox:v1.3.0`.
 - If the repo is private, add a pull secret and set `imagePullSecrets`.
 
 

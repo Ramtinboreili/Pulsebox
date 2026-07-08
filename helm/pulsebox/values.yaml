@@ -3,7 +3,7 @@
 image:
   # Public image on Docker Hub. Pin a real tag — never :latest.
   repository: ramtinboreili/pulsebox
-  tag: v1.0.0
+  tag: v1.3.0
   pullPolicy: IfNotPresent
 
 # Pull secret(s). Not needed for the public Docker Hub image; add one only for a

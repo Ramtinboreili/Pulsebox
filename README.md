@@ -113,12 +113,12 @@ primary health source (they're noisy and ephemeral).
 
 ```bash
 # Pin a real tag — never :latest.
-docker build -t ramtinboreili/pulsebox:v1.0.0 --build-arg VERSION=v1.0.0 .
-docker push ramtinboreili/pulsebox:v1.0.0
+docker build -t ramtinboreili/pulsebox:v1.3.0 --build-arg VERSION=v1.3.0 .
+docker push ramtinboreili/pulsebox:v1.3.0
 ```
 
 The published image is public on Docker Hub, so no pull secret is required:
-`docker pull ramtinboreili/pulsebox:v1.0.0`.
+`docker pull ramtinboreili/pulsebox:v1.3.0`.
 
 The frontend is embedded at build time, so the resulting image is a single
 static distroless binary — no assets to ship separately.
@@ -129,7 +129,7 @@ static distroless binary — no assets to ship separately.
 helm upgrade --install pulsebox helm/pulsebox \
   --namespace pulsebox --create-namespace \
   --set image.repository=ramtinboreili/pulsebox \
-  --set image.tag=v1.0.0 \
+  --set image.tag=v1.3.0 \
   --set ingressRoute.host=pulsebox.your-domain.tld \
   --set ingressRoute.tls.secretName=wildcard-datatejarat-tls
 ```
