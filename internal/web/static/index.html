@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Pulsebox — Cluster Topology</title>
+  <title>Pulsebox — Cluster Health</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -14,31 +14,33 @@
     </div>
     <div id="summary" class="summary"></div>
     <div class="controls">
-      <input id="search" type="search" placeholder="Search name…" autocomplete="off" />
-      <select id="nsFilter" title="Filter by namespace"><option value="">All namespaces</option></select>
-      <span id="connState" class="conn conn-connecting" title="stream state">connecting…</span>
+      <input id="search" type="search" placeholder="Search…" autocomplete="off" />
+      <select id="nsFilter" title="Filter by namespace">
+        <option value="">All namespaces</option>
+      </select>
+      <button id="collapseAll" class="btn" title="Collapse / expand all namespaces">⊟</button>
+      <span id="connState" class="conn conn-connecting">connecting…</span>
     </div>
   </header>
 
-  <main>
-    <canvas id="graph"></canvas>
+  <main id="board" class="board"></main>
 
-    <aside id="detail" class="detail hidden">
-      <button id="detailClose" class="close" aria-label="close">×</button>
-      <h2 id="detailTitle">—</h2>
-      <div id="detailBody"></div>
-    </aside>
-
-    <div id="legend" class="legend">
-      <span><i class="dot healthy"></i>healthy</span>
-      <span><i class="dot degraded"></i>degraded</span>
-      <span><i class="dot unhealthy"></i>unhealthy</span>
-      <span><i class="dot unknown"></i>unknown</span>
-      <span><i class="dot gpu"></i>GPU node</span>
-    </div>
-  </main>
+  <aside id="detail" class="detail hidden">
+    <button id="detailClose" class="close" aria-label="close">×</button>
+    <div id="detailAccent" class="detail-accent"></div>
+    <h2 id="detailTitle">—</h2>
+    <div id="detailBody"></div>
+  </aside>
 
   <div id="tooltip" class="tooltip hidden"></div>
+
+  <footer class="legend" id="legend">
+    <span><i class="dot healthy"></i>healthy</span>
+    <span><i class="dot degraded"></i>degraded</span>
+    <span><i class="dot unhealthy"></i>unhealthy</span>
+    <span><i class="dot unknown"></i>unknown</span>
+    <span><i class="chip-gpu">GPU</i> GPU node</span>
+  </footer>
 
   <script src="app.js"></script>
 </body>

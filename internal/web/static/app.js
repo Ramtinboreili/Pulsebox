@@ -1,362 +1,301 @@
-// Pulsebox dashboard — a dependency-free force-directed cluster topology map.
-// No frameworks, no CDN, no build step: this file is embedded in the binary and
-// talks only to the same-origin Pulsebox API.
+// Pulsebox dashboard — schema layout.
+// Renders the topology graph as nested, deterministic cards
+// (namespace → workload → pod, with nodes/services/PVCs grouped) instead of a
+// force-directed graph. Consumes the same /api/topology + /api/stream contract.
 "use strict";
 
 (() => {
-  const HEALTH_COLORS = {
-    healthy: "#3fb950",
-    degraded: "#d29922",
-    unhealthy: "#f85149",
-    unknown: "#6e7681",
-  };
-  const GPU_COLOR = "#a371f7";
-
-  // Per-kind visual sizing and the ring radius the layout pulls each kind to,
-  // giving a loose cluster→namespace→workload→pod hierarchy.
-  const KIND = {
-    Cluster:               { r: 26, ring: 0 },
-    Node:                  { r: 14, ring: 170 },
-    Namespace:             { r: 16, ring: 250 },
-    Deployment:            { r: 10, ring: 360 },
-    StatefulSet:           { r: 10, ring: 360 },
-    DaemonSet:             { r: 10, ring: 360 },
-    Service:               { r: 8,  ring: 410 },
-    PersistentVolumeClaim: { r: 7,  ring: 450 },
-    PersistentVolume:      { r: 8,  ring: 520 },
-    Pod:                   { r: 6,  ring: 480 },
-  };
-  const kindMeta = (k) => KIND[k] || { r: 7, ring: 400 };
+  const HEALTH = ["healthy", "degraded", "unhealthy", "unknown"];
+  const WORKLOAD_KINDS = new Set(["Deployment", "StatefulSet", "DaemonSet"]);
 
   // ---- state -------------------------------------------------------------
-  const nodes = new Map(); // id -> node (with sim fields x,y,vx,vy)
+  const nodes = new Map(); // id -> node
   const edges = new Map(); // id -> edge
-  let visibleNodes = [];
-  let visibleEdges = [];
-  let adjacency = new Map();
-
+  const collapsed = new Set(); // namespace names that are collapsed
   let nsFilter = "";
   let searchTerm = "";
   let selectedId = null;
-  let hoverId = null;
-  let alpha = 1;
+  let renderQueued = false;
 
-  // camera
-  let scale = 1, panX = 0, panY = 0;
-
-  const canvas = document.getElementById("graph");
-  const ctx = canvas.getContext("2d");
-  let dpr = window.devicePixelRatio || 1;
-  let W = 0, H = 0;
-
-  function resize() {
-    dpr = window.devicePixelRatio || 1;
-    W = canvas.clientWidth;
-    H = canvas.clientHeight;
-    canvas.width = Math.floor(W * dpr);
-    canvas.height = Math.floor(H * dpr);
-  }
-  window.addEventListener("resize", () => { resize(); });
-  resize();
-  panX = W / 2; panY = H / 2;
+  const board = document.getElementById("board");
 
   // ---- data merge --------------------------------------------------------
-  function upsertNode(n) {
-    const existing = nodes.get(n.id);
-    if (existing) {
-      // preserve simulation position
-      Object.assign(existing, n);
-    } else {
-      const ring = kindMeta(n.kind).ring;
-      const a = Math.random() * Math.PI * 2;
-      n.x = Math.cos(a) * (ring + (Math.random() - 0.5) * 40);
-      n.y = Math.sin(a) * (ring + (Math.random() - 0.5) * 40);
-      n.vx = 0; n.vy = 0;
-      nodes.set(n.id, n);
-    }
-  }
-
   function applyMessage(msg) {
-    if (msg.type === "snapshot") {
-      nodes.clear(); edges.clear();
-    }
-    (msg.upsertNodes || []).forEach(upsertNode);
+    if (msg.type === "snapshot") { nodes.clear(); edges.clear(); }
+    (msg.upsertNodes || []).forEach((n) => nodes.set(n.id, n));
     (msg.upsertEdges || []).forEach((e) => edges.set(e.id, e));
-    (msg.removeNodes || []).forEach((id) => { nodes.delete(id); if (selectedId === id) closeDetail(); });
+    (msg.removeNodes || []).forEach((id) => { nodes.delete(id); if (id === selectedId) closeDetail(); });
     (msg.removeEdges || []).forEach((id) => edges.delete(id));
-    rebuildDerived();
-    alpha = Math.max(alpha, 0.6); // reheat layout on change
+    scheduleRender();
   }
 
-  function rebuildDerived() {
-    // adjacency
-    adjacency = new Map();
+  function scheduleRender() {
+    if (renderQueued) return;
+    renderQueued = true;
+    requestAnimationFrame(() => { renderQueued = false; render(); });
+  }
+
+  // ---- model -------------------------------------------------------------
+  // children via "contains" edges: parentId -> [childId]
+  function childrenIndex() {
+    const idx = new Map();
     for (const e of edges.values()) {
-      if (!adjacency.has(e.source)) adjacency.set(e.source, new Set());
-      if (!adjacency.has(e.target)) adjacency.set(e.target, new Set());
-      adjacency.get(e.source).add(e.target);
-      adjacency.get(e.target).add(e.source);
+      if (e.kind !== "contains") continue;
+      if (!idx.has(e.source)) idx.set(e.source, []);
+      idx.get(e.source).push(e.target);
     }
-    computeVisible();
-    updateNamespaceFilter();
+    return idx;
+  }
+
+  function buildModel() {
+    const contains = childrenIndex();
+    const byId = (id) => nodes.get(id);
+    const kNodes = [...nodes.values()].filter((n) => n.kind === "Node")
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const namespaces = [...nodes.values()].filter((n) => n.kind === "Namespace")
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    const nsModels = namespaces.map((ns) => {
+      const childIds = contains.get(ns.id) || [];
+      const workloads = [], loosePods = [], services = [], pvcs = [];
+      for (const cid of childIds) {
+        const c = byId(cid);
+        if (!c) continue;
+        if (WORKLOAD_KINDS.has(c.kind)) {
+          const podIds = contains.get(c.id) || [];
+          workloads.push({ node: c, pods: podIds.map(byId).filter(Boolean).sort(byName) });
+        } else if (c.kind === "Pod") loosePods.push(c);
+        else if (c.kind === "Service") services.push(c);
+        else if (c.kind === "PersistentVolumeClaim") pvcs.push(c);
+      }
+      workloads.sort((a, b) => byName(a.node, b.node));
+      loosePods.sort(byName); services.sort(byName); pvcs.sort(byName);
+      const allPods = [...loosePods, ...workloads.flatMap((w) => w.pods)];
+      const issues = allPods.filter((p) => p.health === "unhealthy" || p.health === "degraded").length;
+      return { node: ns, workloads, loosePods, services, pvcs, podCount: allPods.length, issues };
+    });
+
+    return { nodes: kNodes, namespaces: nsModels };
+  }
+  const byName = (a, b) => a.name.localeCompare(b.name);
+
+  // ---- render ------------------------------------------------------------
+  function render() {
+    const scrollY = window.scrollY;
+    const model = buildModel();
     updateSummary();
+    updateNamespaceFilter();
+
+    const frag = document.createDocumentFragment();
+
+    if (nodes.size === 0) {
+      board.innerHTML = `<div class="empty">Waiting for cluster data…</div>`;
+      return;
+    }
+
+    // Nodes strip
+    if (model.nodes.length) {
+      const strip = el("section", "nodes-strip");
+      for (const n of model.nodes) strip.appendChild(nodeCard(n));
+      frag.appendChild(strip);
+    }
+
+    // Namespace sections
+    for (const ns of model.namespaces) frag.appendChild(namespaceSection(ns));
+
+    board.replaceChildren(frag);
+    applyFilter();
+    window.scrollTo(0, scrollY);
   }
 
-  function computeVisible() {
-    if (!nsFilter) {
-      visibleNodes = [...nodes.values()];
-    } else {
-      const keep = new Set();
-      for (const n of nodes.values()) {
-        if (n.namespace === nsFilter || (n.kind === "Namespace" && n.name === nsFilter) || n.kind === "Cluster") {
-          keep.add(n.id);
-        }
-      }
-      // pull in one-hop neighbours (nodes, PVs) of kept ns-scoped nodes
-      for (const id of [...keep]) {
-        const nb = adjacency.get(id);
-        if (nb) nb.forEach((x) => keep.add(x));
-      }
-      visibleNodes = [...keep].map((id) => nodes.get(id)).filter(Boolean);
+  function nodeCard(n) {
+    const c = el("div", `node-card ${hc(n)}`);
+    if (n.meta && n.meta.gpu === "true") c.classList.add("gpu");
+    c.dataset.id = n.id; c.dataset.name = n.name;
+    const head = el("div", "nc-head");
+    head.appendChild(dot(n));
+    head.appendChild(text("span", "", n.name));
+    if (n.meta && n.meta.gpu === "true") {
+      const g = el("span", "chip-gpu"); g.textContent = "GPU" + (n.meta.gpuCount ? " ×" + n.meta.gpuCount : "");
+      head.appendChild(g);
     }
-    const vis = new Set(visibleNodes.map((n) => n.id));
-    visibleEdges = [...edges.values()].filter((e) => vis.has(e.source) && vis.has(e.target));
+    c.appendChild(head);
+    const sub = [];
+    if (n.meta && n.meta.roles) sub.push(n.meta.roles);
+    if (n.meta && n.meta.kubelet) sub.push(n.meta.kubelet);
+    c.appendChild(text("div", "nc-sub", sub.join(" · ") || n.health));
+    wire(c, n);
+    return c;
   }
 
-  // ---- force simulation --------------------------------------------------
-  function tick() {
-    const n = visibleNodes.length;
-    if (n === 0) return;
-    const REPULSION = 1400;
-    const SPRING = 0.02;
-    const SPRING_LEN = 70;
-    const RING_PULL = 0.008;
-    const CENTER_PULL = 0.002;
+  function namespaceSection(m) {
+    const ns = m.node;
+    const sec = el("section", `ns ${hc(ns)}`);
+    if (collapsed.has(ns.name)) sec.classList.add("collapsed");
+    sec.dataset.ns = ns.name;
 
-    // repulsion (O(n^2); acceptable for typical namespace-scoped views)
-    for (let i = 0; i < n; i++) {
-      const a = visibleNodes[i];
-      for (let j = i + 1; j < n; j++) {
-        const b = visibleNodes[j];
-        let dx = a.x - b.x, dy = a.y - b.y;
-        let d2 = dx * dx + dy * dy;
-        if (d2 < 0.01) { d2 = 0.01; dx = Math.random(); dy = Math.random(); }
-        const d = Math.sqrt(d2);
-        const f = (REPULSION / d2) * alpha;
-        const fx = (dx / d) * f, fy = (dy / d) * f;
-        a.vx += fx; a.vy += fy;
-        b.vx -= fx; b.vy -= fy;
-      }
-    }
-    // springs along edges
-    for (const e of visibleEdges) {
-      const a = nodes.get(e.source), b = nodes.get(e.target);
-      if (!a || !b) continue;
-      const dx = b.x - a.x, dy = b.y - a.y;
-      const d = Math.sqrt(dx * dx + dy * dy) || 0.01;
-      const f = SPRING * (d - SPRING_LEN) * alpha;
-      const fx = (dx / d) * f, fy = (dy / d) * f;
-      a.vx += fx; a.vy += fy;
-      b.vx -= fx; b.vy -= fy;
-    }
-    // ring + center gravity for hierarchy
-    for (const a of visibleNodes) {
-      const ring = kindMeta(a.kind).ring;
-      const d = Math.sqrt(a.x * a.x + a.y * a.y) || 0.01;
-      const targetF = (ring - d) * RING_PULL * alpha;
-      a.vx += (a.x / d) * targetF;
-      a.vy += (a.y / d) * targetF;
-      a.vx -= a.x * CENTER_PULL * alpha;
-      a.vy -= a.y * CENTER_PULL * alpha;
-    }
-    // integrate
-    for (const a of visibleNodes) {
-      if (a === draggingNode) continue;
-      a.x += a.vx; a.y += a.vy;
-      a.vx *= 0.85; a.vy *= 0.85;
-    }
-    alpha *= 0.985;
-    if (alpha < 0.02) alpha = 0.02;
+    const head = el("div", "ns-head");
+    head.appendChild(text("span", "ns-caret", "▾"));
+    head.appendChild(dot(ns));
+    head.appendChild(text("span", "ns-name", ns.name));
+    head.appendChild(text("span", "ns-kindtag", "namespace"));
+    const meta = el("div", "ns-meta");
+    const bits = [`${m.podCount} pods`];
+    if (m.issues) bits.push(`${m.issues} issue${m.issues > 1 ? "s" : ""}`);
+    meta.appendChild(text("span", "", bits.join(" · ")));
+    meta.appendChild(text("span", "ns-score", pct(ns.score)));
+    head.appendChild(meta);
+    head.addEventListener("click", () => {
+      if (collapsed.has(ns.name)) collapsed.delete(ns.name); else collapsed.add(ns.name);
+      sec.classList.toggle("collapsed");
+    });
+    sec.appendChild(head);
+
+    const body = el("div", "ns-body");
+    for (const w of m.workloads) body.appendChild(workloadGroup(w));
+    if (m.loosePods.length) body.appendChild(simpleGroup("Pods", "pods", m.loosePods));
+    if (m.services.length) body.appendChild(simpleGroup("Services", "services", m.services, true));
+    if (m.pvcs.length) body.appendChild(simpleGroup("Storage", "PVCs", m.pvcs, true));
+    if (!body.children.length) body.appendChild(text("div", "empty", "no workloads"));
+    sec.appendChild(body);
+    return sec;
   }
 
-  // ---- rendering ---------------------------------------------------------
-  function nodeColor(n) {
-    if (n.kind === "Node" && n.meta && n.meta.gpu === "true") return GPU_COLOR;
-    return HEALTH_COLORS[n.health] || HEALTH_COLORS.unknown;
+  function workloadGroup(w) {
+    const g = el("div", `group ${hc(w.node)}`);
+    const head = el("div", "group-head");
+    head.appendChild(dot(w.node));
+    head.appendChild(text("span", "gh-kind", w.node.kind));
+    head.appendChild(text("span", "gh-name", w.node.name));
+    head.appendChild(text("span", "gh-meta", (w.node.meta && w.node.meta.ready) || ""));
+    wire(head, w.node);
+    head.dataset.name = w.node.name;
+    g.appendChild(head);
+    const bodyEl = el("div", "group-body");
+    if (w.pods.length) for (const p of w.pods) bodyEl.appendChild(podTile(p));
+    else bodyEl.appendChild(text("span", "empty", "no pods"));
+    g.appendChild(bodyEl);
+    return g;
   }
 
-  function draw() {
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, W, H);
-    ctx.save();
-    ctx.translate(panX, panY);
-    ctx.scale(scale, scale);
-
-    const dim = searchTerm.length > 0;
-    const matches = (n) => !dim || (n.name && n.name.toLowerCase().includes(searchTerm));
-
-    // edges
-    ctx.lineWidth = 1 / scale;
-    for (const e of visibleEdges) {
-      const a = nodes.get(e.source), b = nodes.get(e.target);
-      if (!a || !b) continue;
-      const hot = e.source === hoverId || e.target === hoverId || e.source === selectedId || e.target === selectedId;
-      ctx.strokeStyle = hot ? "rgba(88,166,255,0.7)" : "rgba(139,148,158,0.18)";
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
-      ctx.stroke();
-    }
-
-    // nodes
-    for (const n of visibleNodes) {
-      const km = kindMeta(n.kind);
-      const r = km.r;
-      const isGpu = n.kind === "Node" && n.meta && n.meta.gpu === "true";
-      ctx.globalAlpha = matches(n) ? 1 : 0.15;
-      ctx.beginPath();
-      if (isGpu) {
-        drawHex(n.x, n.y, r + 2);
-      } else {
-        ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
-      }
-      ctx.fillStyle = nodeColor(n);
-      ctx.fill();
-
-      if (n.id === selectedId) {
-        ctx.lineWidth = 3 / scale; ctx.strokeStyle = "#fff"; ctx.stroke();
-      } else if (n.id === hoverId) {
-        ctx.lineWidth = 2 / scale; ctx.strokeStyle = "#58a6ff"; ctx.stroke();
-      } else if (isGpu) {
-        ctx.lineWidth = 2 / scale; ctx.strokeStyle = "#d2b7ff"; ctx.stroke();
-      } else {
-        ctx.lineWidth = 1 / scale; ctx.strokeStyle = "rgba(0,0,0,0.5)"; ctx.stroke();
-      }
-
-      // labels for the larger structural nodes, or when zoomed in
-      if (KIND[n.kind] && (km.r >= 10 || scale > 1.6)) {
-        ctx.globalAlpha = matches(n) ? 0.9 : 0.15;
-        ctx.fillStyle = "#c9d1d9";
-        ctx.font = `${Math.max(9, 11 / scale)}px sans-serif`;
-        ctx.textAlign = "center";
-        ctx.fillText(n.name, n.x, n.y - r - 4 / scale);
-      }
-    }
-    ctx.globalAlpha = 1;
-    ctx.restore();
+  function simpleGroup(label, kindLabel, items, satellite) {
+    const g = el("div", "group");
+    const head = el("div", "group-head");
+    head.style.setProperty("--c", "var(--border)");
+    head.appendChild(text("span", "gh-kind", kindLabel));
+    head.appendChild(text("span", "gh-name", label));
+    head.appendChild(text("span", "gh-meta", String(items.length)));
+    g.appendChild(head);
+    const bodyEl = el("div", "group-body");
+    for (const it of items) bodyEl.appendChild(podTile(it, satellite));
+    g.appendChild(bodyEl);
+    return g;
   }
 
-  function drawHex(cx, cy, r) {
-    for (let i = 0; i < 6; i++) {
-      const a = (Math.PI / 3) * i - Math.PI / 6;
-      const x = cx + r * Math.cos(a), y = cy + r * Math.sin(a);
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    }
-    ctx.closePath();
+  function podTile(p, satellite) {
+    const t = el("div", `tile ${hc(p)}${satellite ? " satellite" : ""}`);
+    if (p.id === selectedId) t.classList.add("sel");
+    t.dataset.id = p.id; t.dataset.name = p.name;
+    t.appendChild(span("t-dot"));
+    t.appendChild(text("span", "t-name", p.name));
+    const restarts = p.meta && parseInt(p.meta.restarts || "0", 10);
+    if (restarts > 0) t.appendChild(text("span", "t-badge", "↻" + restarts));
+    wire(t, p);
+    return t;
   }
 
-  function frame() {
-    tick();
-    draw();
-    requestAnimationFrame(frame);
-  }
-  requestAnimationFrame(frame);
+  // ---- element helpers ---------------------------------------------------
+  function el(tag, cls) { const e = document.createElement(tag); if (cls) e.className = cls; return e; }
+  function span(cls) { return el("span", cls); }
+  function text(tag, cls, txt) { const e = el(tag, cls); e.textContent = txt; return e; }
+  function dot(n) { return el("span", `dot ${n.health}`); }
+  function hc(n) { return HEALTH.includes(n.health) ? n.health : "unknown"; }
+  function pct(s) { return Math.round((s || 0) * 100) + "%"; }
 
-  // ---- interaction -------------------------------------------------------
-  let draggingNode = null;
-  let panning = false;
-  let lastX = 0, lastY = 0;
-  let downX = 0, downY = 0, moved = false;
-
-  function toWorld(px, py) {
-    return { x: (px - panX) / scale, y: (py - panY) / scale };
-  }
-  function nodeAt(px, py) {
-    const w = toWorld(px, py);
-    let best = null, bestD = Infinity;
-    for (const n of visibleNodes) {
-      const r = kindMeta(n.kind).r + 3;
-      const dx = n.x - w.x, dy = n.y - w.y;
-      const d = dx * dx + dy * dy;
-      if (d <= r * r && d < bestD) { best = n; bestD = d; }
-    }
-    return best;
+  function wire(elm, n) {
+    elm.addEventListener("click", (e) => { e.stopPropagation(); selectNode(n.id); });
+    elm.addEventListener("mouseenter", (e) => showTooltip(n, e));
+    elm.addEventListener("mousemove", (e) => moveTooltip(e));
+    elm.addEventListener("mouseleave", hideTooltip);
   }
 
-  canvas.addEventListener("mousedown", (e) => {
-    const rect = canvas.getBoundingClientRect();
-    const px = e.clientX - rect.left, py = e.clientY - rect.top;
-    downX = px; downY = py; moved = false;
-    const hit = nodeAt(px, py);
-    if (hit) { draggingNode = hit; }
-    else { panning = true; lastX = px; lastY = py; }
-  });
-  window.addEventListener("mousemove", (e) => {
-    const rect = canvas.getBoundingClientRect();
-    const px = e.clientX - rect.left, py = e.clientY - rect.top;
-    if (Math.abs(px - downX) + Math.abs(py - downY) > 4) moved = true;
-    if (draggingNode) {
-      const w = toWorld(px, py);
-      draggingNode.x = w.x; draggingNode.y = w.y;
-      draggingNode.vx = 0; draggingNode.vy = 0;
-      alpha = Math.max(alpha, 0.3);
-    } else if (panning) {
-      panX += px - lastX; panY += py - lastY;
-      lastX = px; lastY = py;
-    } else {
-      const hit = nodeAt(px, py);
-      hoverId = hit ? hit.id : null;
-      if (hit) showTooltip(hit, e.clientX, e.clientY); else hideTooltip();
-      canvas.style.cursor = hit ? "pointer" : "grab";
-    }
-  });
-  window.addEventListener("mouseup", () => {
-    if (draggingNode && !moved) selectNode(draggingNode.id);
-    else if (panning && !moved) { /* background click: keep selection */ }
-    draggingNode = null; panning = false;
-  });
-  canvas.addEventListener("wheel", (e) => {
-    e.preventDefault();
-    const rect = canvas.getBoundingClientRect();
-    const px = e.clientX - rect.left, py = e.clientY - rect.top;
-    const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-    const w = toWorld(px, py);
-    scale = Math.min(4, Math.max(0.15, scale * factor));
-    // keep cursor anchored
-    panX = px - w.x * scale;
-    panY = py - w.y * scale;
-  }, { passive: false });
+  // ---- filtering ---------------------------------------------------------
+  function applyFilter() {
+    const q = searchTerm;
+    document.querySelectorAll(".ns").forEach((sec) => {
+      const nsName = sec.dataset.ns;
+      const nsMatch = !nsFilter || nsName === nsFilter;
+      if (!nsMatch) { sec.classList.add("hiddenByFilter"); return; }
+      sec.classList.remove("hiddenByFilter");
+      let anyVisible = false;
+      sec.querySelectorAll(".group").forEach((g) => {
+        let gVisible = false;
+        g.querySelectorAll(".tile").forEach((t) => {
+          const show = !q || (t.dataset.name || "").toLowerCase().includes(q);
+          t.classList.toggle("hiddenByFilter", !show);
+          if (show) gVisible = true;
+        });
+        const headName = (g.querySelector(".group-head") || {}).dataset?.name || "";
+        if (q && headName.toLowerCase().includes(q)) gVisible = true;
+        g.classList.toggle("hiddenByFilter", !gVisible);
+        if (gVisible) anyVisible = true;
+      });
+      const nsNameMatch = q && nsName.toLowerCase().includes(q);
+      if (nsNameMatch) anyVisible = true;
+      sec.classList.toggle("hiddenByFilter", !!q && !anyVisible);
+    });
+    // nodes strip: filter by search only
+    document.querySelectorAll(".node-card").forEach((c) => {
+      const show = !q || (c.dataset.name || "").toLowerCase().includes(q);
+      c.classList.toggle("hiddenByFilter", !show);
+    });
+  }
 
   // ---- tooltip -----------------------------------------------------------
   const tooltip = document.getElementById("tooltip");
-  function showTooltip(n, clientX, clientY) {
-    let html = `<div class="tt-title">${esc(n.name)}</div><div class="tt-kind">${esc(n.kind)}${n.namespace ? " · " + esc(n.namespace) : ""} · <b style="color:${nodeColor(n)}">${esc(n.health)}</b> ${n.score.toFixed(2)}</div>`;
+  function showTooltip(n, e) {
+    let html = `<div class="tt-title">${esc(n.name)}</div>`;
+    html += `<div class="tt-sub">${esc(n.kind)}${n.namespace ? " · " + esc(n.namespace) : ""} · <b style="color:var(--c)">${esc(n.health)}</b> ${(n.score || 0).toFixed(2)}</div>`;
+    if (n.meta && n.meta.node) html += `<div class="tt-sub">on ${esc(n.meta.node)}</div>`;
     if (n.reasons && n.reasons.length) html += `<div class="tt-reason">${esc(n.reasons.slice(0, 3).join("; "))}</div>`;
     tooltip.innerHTML = html;
+    tooltip.style.setProperty("--c", `var(--${hc(n)})`);
     tooltip.classList.remove("hidden");
-    tooltip.style.left = Math.min(clientX + 14, window.innerWidth - 330) + "px";
-    tooltip.style.top = (clientY + 14) + "px";
+    moveTooltip(e);
+  }
+  function moveTooltip(e) {
+    tooltip.style.left = Math.min(e.clientX + 14, window.innerWidth - 350) + "px";
+    tooltip.style.top = Math.min(e.clientY + 16, window.innerHeight - 90) + "px";
   }
   function hideTooltip() { tooltip.classList.add("hidden"); }
 
   // ---- detail panel ------------------------------------------------------
   const detail = document.getElementById("detail");
   document.getElementById("detailClose").addEventListener("click", closeDetail);
-  function closeDetail() { detail.classList.add("hidden"); selectedId = null; }
+  function closeDetail() {
+    detail.classList.add("hidden");
+    const prev = selectedId; selectedId = null;
+    if (prev) document.querySelectorAll(".tile.sel").forEach((t) => t.classList.remove("sel"));
+  }
 
   function selectNode(id) {
-    selectedId = id;
     const n = nodes.get(id);
     if (!n) return;
+    selectedId = id;
+    document.querySelectorAll(".tile.sel").forEach((t) => t.classList.remove("sel"));
+    const t = document.querySelector(`.tile[data-id="${cssEsc(id)}"]`);
+    if (t) t.classList.add("sel");
     renderDetail(n, null);
     detail.classList.remove("hidden");
+    hideTooltip();
     if (n.kind !== "Cluster") fetchResource(n);
   }
 
   function renderDetail(n, extra) {
     document.getElementById("detailTitle").textContent = n.name;
-    const color = nodeColor(n);
-    let html = `<span class="badge" style="background:${color};color:#0d1117">${esc(n.health)}</span> <span style="color:var(--muted)">score ${n.score.toFixed(2)}</span>`;
+    detail.style.setProperty("--c", `var(--${hc(n)})`);
+    document.getElementById("detailAccent").style.setProperty("--c", `var(--${hc(n)})`);
+    let html = `<span class="badge" style="background:var(--${hc(n)});color:#0b0e13">${esc(n.health)}</span> <span style="color:var(--muted)">score ${(n.score || 0).toFixed(2)}</span>`;
     html += `<div class="kv">`;
     html += kv("Kind", n.kind);
     if (n.namespace) html += kv("Namespace", n.namespace);
@@ -370,133 +309,109 @@
       html += `<div class="section-title">Recent warning events</div><ul class="reasons events">` +
         extra.warningEvents.map((e) => `<li>${esc(e)}</li>`).join("") + `</ul>`;
     } else if (extra) {
-      html += `<div class="section-title">Recent warning events</div><div style="color:var(--muted)">none</div>`;
+      html += `<div class="section-title">Recent warning events</div><div style="color:var(--muted);margin:0 4px">none</div>`;
     }
     document.getElementById("detailBody").innerHTML = html;
   }
 
   async function fetchResource(n) {
     const ns = n.namespace || "-";
-    const kind = n.kind;
     try {
-      const res = await fetch(`api/resource/${encodeURIComponent(kind)}/${encodeURIComponent(ns)}/${encodeURIComponent(n.name)}`);
-      if (!res.ok) return;
+      const res = await fetch(`api/resource/${encodeURIComponent(n.kind)}/${encodeURIComponent(ns)}/${encodeURIComponent(n.name)}`);
+      if (!res.ok) { if (selectedId === n.id) renderDetail(n, { warningEvents: [] }); return; }
       const data = await res.json();
       if (selectedId === n.id) renderDetail(nodes.get(n.id) || n, data);
-    } catch (_) { /* ignore */ }
+    } catch (_) {}
   }
 
   const kv = (k, v) => `<div class="k">${esc(k)}</div><div class="v">${esc(String(v))}</div>`;
-  function esc(s) {
-    return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  }
+  function esc(s) { return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+  function cssEsc(s) { return (window.CSS && CSS.escape) ? CSS.escape(s) : String(s).replace(/["\\]/g, "\\$&"); }
 
-  // ---- summary + filters -------------------------------------------------
+  // ---- summary + controls ------------------------------------------------
   function updateSummary() {
-    const el = document.getElementById("summary");
+    const elm = document.getElementById("summary");
     let cluster = null;
     const counts = { healthy: 0, degraded: 0, unhealthy: 0, unknown: 0 };
     let podCount = 0, nodeCount = 0, gpuCount = 0, nsCount = 0;
     for (const n of nodes.values()) {
       if (n.kind === "Cluster") cluster = n;
-      if (n.kind === "Pod") { podCount++; counts[n.health] = (counts[n.health] || 0) + 1; }
-      if (n.kind === "Node") { nodeCount++; if (n.meta && n.meta.gpu === "true") gpuCount++; }
-      if (n.kind === "Namespace") nsCount++;
+      else if (n.kind === "Pod") { podCount++; counts[n.health] = (counts[n.health] || 0) + 1; }
+      else if (n.kind === "Node") { nodeCount++; if (n.meta && n.meta.gpu === "true") gpuCount++; }
+      else if (n.kind === "Namespace") nsCount++;
     }
     const score = cluster ? cluster.score : 0;
-    const scoreColor = score >= 0.99 ? HEALTH_COLORS.healthy : score >= 0.7 ? HEALTH_COLORS.degraded : HEALTH_COLORS.unhealthy;
-    el.innerHTML =
-      `<span class="stat"><span class="score-pill" style="color:${scoreColor};border-color:${scoreColor}">cluster ${(score * 100).toFixed(0)}%</span></span>` +
-      stat("healthy", counts.healthy, HEALTH_COLORS.healthy) +
-      stat("degraded", counts.degraded, HEALTH_COLORS.degraded) +
-      stat("unhealthy", counts.unhealthy, HEALTH_COLORS.unhealthy) +
-      `<span class="stat small">${nsCount} ns · ${podCount} pods · ${nodeCount} nodes${gpuCount ? ` · <span style="color:${GPU_COLOR}">${gpuCount} GPU</span>` : ""}</span>`;
+    const col = score >= 0.99 ? "var(--healthy)" : score >= 0.7 ? "var(--degraded)" : "var(--unhealthy)";
+    elm.innerHTML =
+      `<span class="stat"><span class="score-pill" style="color:${col}">cluster ${Math.round(score * 100)}%</span></span>` +
+      stat("healthy", counts.healthy, "var(--healthy)") +
+      stat("degraded", counts.degraded, "var(--degraded)") +
+      stat("unhealthy", counts.unhealthy, "var(--unhealthy)") +
+      `<span class="stat small">${nsCount} ns · ${podCount} pods · ${nodeCount} nodes${gpuCount ? ` · <span style="color:var(--gpu)">${gpuCount} GPU</span>` : ""}</span>`;
   }
-  const stat = (label, v, color) => `<span class="stat"><b style="color:${color}">${v}</b> ${label}</span>`;
+  const stat = (label, v, col) => `<span class="stat"><b style="color:${col}">${v}</b> ${label}</span>`;
 
   function updateNamespaceFilter() {
     const sel = document.getElementById("nsFilter");
     const current = sel.value;
-    const nsNames = [...nodes.values()].filter((n) => n.kind === "Namespace").map((n) => n.name).sort();
-    // rebuild only if the set changed
+    const names = [...nodes.values()].filter((n) => n.kind === "Namespace").map((n) => n.name).sort();
     const existing = new Set([...sel.options].map((o) => o.value));
-    const wanted = new Set(["", ...nsNames]);
+    const wanted = new Set(["", ...names]);
     if (existing.size === wanted.size && [...wanted].every((x) => existing.has(x))) return;
     sel.innerHTML = `<option value="">All namespaces</option>` +
-      nsNames.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
+      names.map((n) => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
     sel.value = wanted.has(current) ? current : "";
   }
 
-  document.getElementById("nsFilter").addEventListener("change", (e) => {
-    nsFilter = e.target.value;
-    computeVisible();
-    alpha = 0.7;
-  });
-  document.getElementById("search").addEventListener("input", (e) => {
-    searchTerm = e.target.value.trim().toLowerCase();
+  document.getElementById("nsFilter").addEventListener("change", (e) => { nsFilter = e.target.value; applyFilter(); });
+  document.getElementById("search").addEventListener("input", (e) => { searchTerm = e.target.value.trim().toLowerCase(); applyFilter(); });
+  document.getElementById("collapseAll").addEventListener("click", () => {
+    const names = [...nodes.values()].filter((n) => n.kind === "Namespace").map((n) => n.name);
+    const anyOpen = names.some((n) => !collapsed.has(n));
+    collapsed.clear();
+    if (anyOpen) names.forEach((n) => collapsed.add(n));
+    render();
   });
 
   // ---- connection: WebSocket with polling fallback -----------------------
   const connEl = document.getElementById("connState");
-  function setConn(cls, text) {
-    connEl.className = "conn " + cls;
-    connEl.textContent = text;
+  const setConn = (cls, txt) => { connEl.className = "conn " + cls; connEl.textContent = txt; };
+
+  let ws = null, wsRetry = 0, pollTimer = null;
+
+  function streamURL() {
+    const base = new URL("api/stream", location.href);
+    base.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+    return base.toString();
   }
-
-  let ws = null;
-  let wsRetry = 0;
-  let pollTimer = null;
-
   function connect() {
     setConn("conn-connecting", "connecting…");
-    try {
-      ws = new WebSocket(streamURL());
-    } catch (_) { scheduleReconnect(); return; }
-
+    try { ws = new WebSocket(streamURL()); } catch (_) { return scheduleReconnect(); }
     ws.onopen = () => { wsRetry = 0; stopPolling(); setConn("conn-live", "● live"); };
-    ws.onmessage = (ev) => {
-      try { applyMessage(JSON.parse(ev.data)); } catch (_) {}
-    };
+    ws.onmessage = (ev) => { try { applyMessage(JSON.parse(ev.data)); } catch (_) {} };
     ws.onclose = () => { setConn("conn-down", "reconnecting…"); scheduleReconnect(); };
     ws.onerror = () => { try { ws.close(); } catch (_) {} };
   }
-
-  function streamURL() {
-    const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    // resolve relative to current path so it works behind a sub-path ingress
-    const base = new URL("api/stream", location.href);
-    base.protocol = proto;
-    return base.toString();
-  }
-
   function scheduleReconnect() {
-    ws = null;
-    wsRetry++;
-    startPolling(); // degrade gracefully while the socket is down
-    const delay = Math.min(15000, 1000 * Math.pow(1.6, Math.min(wsRetry, 8)));
-    setTimeout(connect, delay);
+    ws = null; wsRetry++;
+    startPolling();
+    setTimeout(connect, Math.min(15000, 1000 * Math.pow(1.6, Math.min(wsRetry, 8))));
   }
-
   function startPolling() {
     if (pollTimer) return;
     setConn("conn-polling", "polling");
     const poll = async () => {
       try {
         const res = await fetch("api/topology", { cache: "no-store" });
-        if (res.ok) {
-          const g = await res.json();
-          applyMessage({ type: "snapshot", upsertNodes: g.nodes, upsertEdges: g.edges });
-        }
+        if (res.ok) { const g = await res.json(); applyMessage({ type: "snapshot", upsertNodes: g.nodes, upsertEdges: g.edges }); }
       } catch (_) {}
     };
     poll();
     pollTimer = setInterval(poll, 5000);
   }
-  function stopPolling() {
-    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-  }
+  function stopPolling() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
 
-  // Initial load via REST so the graph appears even before the socket opens.
+  // Initial load via REST so content appears before the socket opens.
   fetch("api/topology", { cache: "no-store" })
     .then((r) => r.ok ? r.json() : null)
     .then((g) => { if (g) applyMessage({ type: "snapshot", upsertNodes: g.nodes, upsertEdges: g.edges }); })
