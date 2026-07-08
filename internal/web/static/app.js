@@ -120,10 +120,36 @@
       pos.set(id, { x, y, w, h, depth, dir, node: n });
       return y;
     }
+    // Subtree weight = number of visible descendant leaves (pods/services/PVCs/
+    // PVs/nodes). Used to balance namespaces across the two sides so the tree
+    // stays roughly square instead of one runaway-tall column.
+    const weightMemo = new Map();
+    function weight(id) {
+      if (weightMemo.has(id)) return weightMemo.get(id);
+      weightMemo.set(id, 1); // cycle guard / provisional
+      const kids = childrenOf(id);
+      let c = kids.length ? 0 : 1;
+      for (const k of kids) c += weight(k);
+      weightMemo.set(id, c);
+      return c;
+    }
+    const kindNameOrder = (a, b) =>
+      kindRank(nodes.get(a).kind) - kindRank(nodes.get(b).kind) || nodes.get(a).name.localeCompare(nodes.get(b).name);
+
     for (const r of roots) {
       const kids = childrenOf(r.id);
-      const rightKids = kids.filter((k) => nodes.get(k).kind !== "Node");
-      const leftKids = kids.filter((k) => nodes.get(k).kind === "Node");
+      // Node children (only present when expanded) anchor to the left and seed
+      // its weight; namespaces are greedily balanced onto the lighter side.
+      const nodeKids = kids.filter((k) => nodes.get(k).kind === "Node");
+      const nsKids = kids.filter((k) => nodes.get(k).kind !== "Node");
+      const leftKids = nodeKids.slice(), rightKids = [];
+      let leftW = nodeKids.reduce((s, k) => s + weight(k), 0), rightW = 0;
+      for (const k of nsKids.slice().sort((a, b) => weight(b) - weight(a) || nodes.get(a).name.localeCompare(nodes.get(b).name))) {
+        if (leftW <= rightW) { leftKids.push(k); leftW += weight(k); }
+        else { rightKids.push(k); rightW += weight(k); }
+      }
+      leftKids.sort(kindNameOrder); rightKids.sort(kindNameOrder);
+
       const curR = { y: cursorY }, curL = { y: cursorY };
       const ysR = rightKids.map((k) => place(k, 1, 1, curR)).filter((v) => v !== null);
       const ysL = leftKids.map((k) => place(k, 1, -1, curL)).filter((v) => v !== null);
@@ -149,7 +175,7 @@
 
   // ---- render loop -------------------------------------------------------
   function frame() {
-    if (layoutDirty) { relayout(); if (needFit) { fitView(); needFit = false; } }
+    if (layoutDirty) { relayout(); if (needFit && pos.size) { fitView(); needFit = false; } }
     draw();
     requestAnimationFrame(frame);
   }
