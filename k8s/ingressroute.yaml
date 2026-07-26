@@ -1,11 +1,20 @@
 # Traefik v3 IngressRoute (CRD) — this cluster uses IngressRoute, not the
-# standard networking.k8s.io Ingress. The dashboard is exposed on its own
-# subdomain; metrics (:8037) are intentionally NOT exposed here.
+# standard networking.k8s.io Ingress. Pulsebox shares the cluster-admin host
+# `cluster.datatejarat.ir` with the other internal tools (keycloak, longhorn,
+# prometheus, traefik…), each mounted under its own PathPrefix. Metrics (:8037)
+# are intentionally NOT exposed here.
+#
+# The dashboard's frontend uses only relative URLs, so it serves correctly under
+# `/pulsebox/` once StripPrefix removes the prefix before it reaches the pod.
+# The pod itself has no route-prefix support, so two middlewares are needed
+# (see middleware.yaml), applied in order:
+#   1. pulsebox-add-slash  — 302 /pulsebox -> /pulsebox/ so relative assets
+#      resolve against /pulsebox/ instead of the host root.
+#   2. pulsebox-strip-prefix — strip /pulsebox so the pod sees / and /api/…
 #
 # TLS uses the existing wildcard certificate. Traefik resolves `secretName`
-# from the IngressRoute's own namespace, so the wildcard secret must exist in
-# the `pulsebox` namespace (replicate it, or configure it as Traefik's default
-# certificate via a TLSStore). Adjust `Host(...)` to your real domain.
+# from the IngressRoute's own namespace, so the wildcard secret is replicated
+# into the `pulsebox` namespace.
 #
 # No auth in v1 (matches the cluster's internal-service pattern). Natural
 # follow-up: put Keycloak / oauth2-proxy in front via a Traefik middleware.
@@ -21,7 +30,10 @@ spec:
     - websecure
   routes:
     - kind: Rule
-      match: Host(`pulsebox.example.com`)
+      match: Host(`cluster.datatejarat.ir`) && PathPrefix(`/pulsebox`)
+      middlewares:
+        - name: pulsebox-add-slash
+        - name: pulsebox-strip-prefix
       services:
         - name: pulsebox
           port: 8080
